@@ -455,24 +455,13 @@ const JET_FRAG = /* glsl */`
 //  BLACK HOLE SHADERS
 // ─────────────────────────────────────────────────────────────
 const BH_VERT = /* glsl */`
-  varying vec3 vNormal;
-  varying vec3 vPosition;
   void main() {
-    vNormal   = normalize(normalMatrix * normal);
-    vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 const BH_FRAG = /* glsl */`
-  varying vec3 vNormal;
-  varying vec3 vPosition;
-  uniform vec3 uRimColor;
   void main() {
-    vec3  viewDir = normalize(-vPosition);
-    float rim     = 1.0 - max(0.0, dot(vNormal, viewDir));
-    rim = pow(rim, 3.2);
-    // Pure black at centre, glowing rim (bloom will amplify)
-    gl_FragColor  = vec4(uRimColor * rim * 5.0, 1.0);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
   }
 `;
 
@@ -628,7 +617,6 @@ function buildBlackHole(theme) {
     new THREE.ShaderMaterial({
       vertexShader:   BH_VERT,
       fragmentShader: BH_FRAG,
-      uniforms: { uRimColor: { value: new THREE.Color('#1a2fff') } },
       transparent: false,
       depthWrite: true,
     })
