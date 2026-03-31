@@ -787,10 +787,156 @@ requestAnimationFrame(() => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  ROCKET
+// ─────────────────────────────────────────────────────────────
+const ROCKET_GM   = 14000;  // gravitational parameter — controls orbit speed
+const TRAIL_MAX   = 420;    // max trail positions stored
+const TRAIL_EVERY = 3;      // record position every N frames
+
+// Physics state — start at aphelion (Z=122) with tangential velocity (+X)
+const rktPos = new THREE.Vector3(0, 0, 122);
+const rktVel = new THREE.Vector3(9.1, 0, 0);
+let   rktTick = 0;
+
+// ── Trail ─────────────────────────────────────────────────────
+const rktTrail  = [];
+const rktTrBuf  = new Float32Array(TRAIL_MAX * 3);
+const rktTrGeo  = new THREE.BufferGeometry();
+const rktTrAttr = new THREE.BufferAttribute(rktTrBuf, 3);
+rktTrGeo.setAttribute('position', rktTrAttr);
+rktTrGeo.setDrawRange(0, 1);
+
+const rktTrLine = new THREE.Line(
+  rktTrGeo,
+  new THREE.LineDashedMaterial({
+    color: 0x99aaff,
+    dashSize: 4.5,
+    gapSize:  3.0,
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+  })
+);
+scene.add(rktTrLine);
+
+// ── Rocket mesh ───────────────────────────────────────────────
+const rktGroup = new THREE.Group();
+scene.add(rktGroup);
+
+const _matSilver = new THREE.MeshBasicMaterial({ color: 0xddeeff });
+const _matNose   = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const _matFin    = new THREE.MeshBasicMaterial({ color: 0x8899bb });
+const _matExh    = new THREE.MeshBasicMaterial({
+  color: new THREE.Color(3.5, 1.2, 0.15),   // overbright — bloom catches it
+  transparent: true, opacity: 0.92,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+});
+const _matCore   = new THREE.MeshBasicMaterial({
+  color: new THREE.Color(5, 5, 5),            // pure white bloom core
+  transparent: true, opacity: 0.95,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+});
+
+// Body
+rktGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 2.8, 10), _matSilver));
+
+// Nose cone
+const _nose = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.5, 10), _matNose);
+_nose.position.y = 2.15;
+rktGroup.add(_nose);
+
+// 3 fins at base
+for (let i = 0; i < 3; i++) {
+  const ang = (i / 3) * Math.PI * 2;
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.95, 0.65), _matFin);
+  fin.position.set(Math.cos(ang) * 0.58, -1.05, Math.sin(ang) * 0.58);
+  fin.rotation.y = -ang;
+  rktGroup.add(fin);
+}
+
+// Exhaust plume (wide)
+const _exhPlume = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.0, 10), _matExh);
+_exhPlume.position.y = -2.3;
+_exhPlume.rotation.x = Math.PI;
+rktGroup.add(_exhPlume);
+
+// Exhaust inner bright core
+const _exhCore = new THREE.Mesh(new THREE.ConeGeometry(0.14, 1.0, 8), _matCore);
+_exhCore.position.y = -2.05;
+_exhCore.rotation.x = Math.PI;
+rktGroup.add(_exhCore);
+
+// Reusable vectors (avoid per-frame alloc)
+const _rktUp  = new THREE.Vector3(0, 1, 0);
+const _rktDir = new THREE.Vector3();
+const _rktDG  = new THREE.Vector3();
+
+function updateRocket(dt) {
+  // ── BH gravity (inverse-square from origin) ───────────────────
+  const r = rktPos.length();
+  if (r > 3.5) {
+    const g = ROCKET_GM / (r * r);
+    rktVel.addScaledVector(rktPos, -g * dt / r);
+  } else {
+    // Inside event horizon: elastic bounce out
+    rktVel.negate().multiplyScalar(0.4);
+    rktPos.normalize().multiplyScalar(4.5);
+  }
+
+  // ── Click gravity (same well as particles) ────────────────────
+  if (gravStr > 0.01) {
+    _rktDG.copy(gPoint).sub(rktPos);
+    const d = _rktDG.length();
+    if (d < 38 && d > 0.1) {
+      const f = Math.pow(1 - d / 38, 2) * gravStr * 320 * dt;
+      rktVel.addScaledVector(_rktDG.normalize(), f);
+    }
+  }
+
+  // ── Integrate ─────────────────────────────────────────────────
+  rktPos.addScaledVector(rktVel, dt);
+
+  // Soft spring back to disk plane (Y ≈ 0) so it stays co-planar
+  rktVel.y -= rktPos.y * 1.8 * dt;
+
+  // ── Orient rocket nose along velocity ─────────────────────────
+  const spd = rktVel.length();
+  if (spd > 0.01) {
+    _rktDir.copy(rktVel).divideScalar(spd);
+    rktGroup.quaternion.setFromUnitVectors(_rktUp, _rktDir);
+  }
+  rktGroup.position.copy(rktPos);
+
+  // ── Exhaust flicker ───────────────────────────────────────────
+  const t = performance.now();
+  _exhPlume.material.opacity = 0.70 + 0.22 * Math.sin(t * 0.028);
+  _exhCore.scale.y           = 0.75 + 0.50 * Math.sin(t * 0.041);
+
+  // ── Record trail ──────────────────────────────────────────────
+  if (++rktTick >= TRAIL_EVERY) {
+    rktTick = 0;
+    rktTrail.push(new THREE.Vector3().copy(rktPos));
+    if (rktTrail.length > TRAIL_MAX) rktTrail.shift();
+  }
+
+  // ── Update trail geometry ─────────────────────────────────────
+  const cnt = rktTrail.length;
+  for (let i = 0; i < cnt; i++) {
+    rktTrBuf[i*3]   = rktTrail[i].x;
+    rktTrBuf[i*3+1] = rktTrail[i].y;
+    rktTrBuf[i*3+2] = rktTrail[i].z;
+  }
+  rktTrAttr.needsUpdate = true;
+  rktTrGeo.setDrawRange(0, cnt);
+  if (cnt > 1) rktTrLine.computeLineDistances();
+}
+
+// ─────────────────────────────────────────────────────────────
 //  RENDER LOOP
 // ─────────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
 let fFrames = 0, fLast = performance.now();
+let prevElapsed = 0;
 
 // Slow pulse animation on core
 let pulseT = 0;
@@ -799,7 +945,9 @@ let pulseT = 0;
   requestAnimationFrame(loop);
 
   const elapsed = clock.getElapsedTime();
-  pulseT += 0.016;
+  const dt      = Math.min(elapsed - prevElapsed, 0.05); // cap to avoid jumps
+  prevElapsed   = elapsed;
+  pulseT += dt;
 
   if (galaxyMat) {
     galaxyMat.uniforms.uTime.value  = elapsed;
@@ -813,6 +961,7 @@ let pulseT = 0;
   nebulaGroup.rotation.y = elapsed * 0.018;
 
   tickGravity();
+  updateRocket(dt);
   orbit.update();
   composer.render();
 
