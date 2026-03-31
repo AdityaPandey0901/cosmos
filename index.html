@@ -122,6 +122,34 @@ canvas { display: block; }
 }
 .dk-empty { visibility: hidden; }
 
+/* ── FOLLOW CAM TOGGLE ── */
+#cam-toggle {
+  margin-top: 10px;
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.30);
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  text-align: center;
+  user-select: none;
+}
+#cam-toggle:hover {
+  background: rgba(100,160,255,0.10);
+  color: rgba(255,255,255,0.55);
+  border-color: rgba(100,160,255,0.35);
+}
+#cam-toggle.active {
+  background: rgba(100,160,255,0.20);
+  color: rgba(160,210,255,0.95);
+  border-color: rgba(100,160,255,0.60);
+  box-shadow: 0 0 10px rgba(80,140,255,0.25);
+}
+
 #info-wrap {
   position: absolute;
   top: 30px; right: 34px;
@@ -194,6 +222,7 @@ canvas { display: block; }
       <div class="dk" id="dk-down">▼</div>
       <div class="dk" id="dk-right">▶</div>
     </div>
+    <button id="cam-toggle">[ F ] &nbsp; UNIVERSE VIEW</button>
   </div>
   <div id="info-wrap">
     <div id="theme-label">NEBULA BLUE</div>
@@ -834,8 +863,10 @@ window.addEventListener('keydown', e => {
     simSpeed = Math.max(simSpeed * 0.77, 0.02);
     if (galaxyMat) galaxyMat.uniforms.uSpeed.value = simSpeed;
   }
+  if (e.key === 'f' || e.key === 'F') setFollowCam(!followCam);
   if (e.key === ' ') {
     e.preventDefault();
+    setFollowCam(false);
     camera.position.set(0, 38, 118);
     camera.lookAt(0, 0, 0);
     orbit.reset();
@@ -958,6 +989,7 @@ function updateRocket(dt) {
     // Inside event horizon — swallowed, gone forever
     rktGroup.visible  = false;
     rktTrLine.visible = false;
+    if (followCam) setFollowCam(false);
     return;
   }
   const g = ROCKET_GM / (r * r);
@@ -1059,6 +1091,61 @@ function updateRocket(dt) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  FOLLOW CAMERA
+// ─────────────────────────────────────────────────────────────
+let followCam = false;
+const _fcTarget  = new THREE.Vector3();
+const _fcLookAt  = new THREE.Vector3();
+const _fcUp      = new THREE.Vector3(0, 1, 0);
+const camToggleEl = document.getElementById('cam-toggle');
+
+function setFollowCam(on) {
+  followCam = on;
+  orbit.enabled = !on;
+  camToggleEl.classList.toggle('active', on);
+  camToggleEl.textContent = on ? '[ F ]  ROCKET VIEW' : '[ F ]  UNIVERSE VIEW';
+  if (!on) {
+    // Smooth restore handled by orbit; snap look-at back to origin
+    orbit.target.set(0, 0, 0);
+  }
+}
+
+camToggleEl.addEventListener('click', () => setFollowCam(!followCam));
+
+function updateFollowCam() {
+  if (!followCam || !rktGroup.visible) return;
+
+  const spd = rktVel.length();
+  if (spd < 0.01) return;
+
+  const fwd   = rktVel.clone().normalize();
+
+  // Right axis relative to world up; fall back if nearly parallel
+  let right = new THREE.Vector3().crossVectors(fwd, _fcUp);
+  if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+  right.normalize();
+
+  // Camera-local up (perpendicular to both fwd and right)
+  const camUp = new THREE.Vector3().crossVectors(right, fwd).normalize();
+
+  // Sit 22 units behind, 5 units above the rocket
+  _fcTarget.copy(rktPos)
+    .addScaledVector(fwd,   -22)
+    .addScaledVector(camUp,   5);
+
+  // Look 14 units ahead of the rocket (not at it — more cinematic)
+  _fcLookAt.copy(rktPos).addScaledVector(fwd, 14);
+
+  // Smooth chase — position lerps faster than look-at for a slight lag feel
+  camera.position.lerp(_fcTarget, 0.07);
+  const curLook = new THREE.Vector3();
+  camera.getWorldDirection(curLook);
+  const desiredDir = _fcLookAt.clone().sub(camera.position).normalize();
+  curLook.lerp(desiredDir, 0.10).normalize();
+  camera.lookAt(camera.position.clone().add(curLook));
+}
+
+// ─────────────────────────────────────────────────────────────
 //  RENDER LOOP
 // ─────────────────────────────────────────────────────────────
 const clock = new THREE.Clock();
@@ -1089,6 +1176,7 @@ let pulseT = 0;
 
   tickGravity();
   updateRocket(dt);
+  updateFollowCam();
   orbit.update();
   composer.render();
 
