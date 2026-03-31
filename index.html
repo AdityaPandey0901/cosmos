@@ -284,9 +284,12 @@ const VERT = /* glsl */`
   }
 
   void main() {
-    // Differential (Keplerian) rotation — inner orbits faster
-    float omega = uSpeed / sqrt(max(aRadius, 0.4));
-    float theta = aAngle + uTime * omega;
+    // ── Vortex rotation: inner SLOWER, outer FASTER ──────────────
+    // omega grows with radius, producing a whirlpool / solid-body-ish
+    // rotation where outer arms overtake inner ones over time.
+    float rNorm = clamp(aRadius / 50.0, 0.0, 1.0);
+    float omega  = uSpeed * (0.04 + pow(rNorm, 0.55) * 0.86);
+    float theta  = aAngle + uTime * omega;
 
     vec3 p;
     p.x = cos(theta) * aRadius;
@@ -326,9 +329,29 @@ const VERT = /* glsl */`
     float pulse = sin(uTime * 2.0 - aRadius * 0.25) * 0.012 * uPulse;
     p.y += pulse;
 
+    // ── Speed-based colour: blue (slow/inner) → red (fast/outer) ─
+    // Tangential speed = omega * r; normalise so outer edge ≈ 1.0
+    float speedT = clamp((omega * aRadius) / (uSpeed * 44.0), 0.0, 1.0);
+
+    // Full thermal gradient: blue → cyan → green → yellow → red
+    vec3 speedCol;
+    if (speedT < 0.25) {
+      speedCol = mix(vec3(0.05, 0.10, 1.00), vec3(0.00, 0.85, 1.00), speedT * 4.0);
+    } else if (speedT < 0.50) {
+      speedCol = mix(vec3(0.00, 0.85, 1.00), vec3(0.05, 1.00, 0.10), (speedT - 0.25) * 4.0);
+    } else if (speedT < 0.75) {
+      speedCol = mix(vec3(0.05, 1.00, 0.10), vec3(1.00, 0.90, 0.00), (speedT - 0.50) * 4.0);
+    } else {
+      speedCol = mix(vec3(1.00, 0.90, 0.00), vec3(1.00, 0.04, 0.00), (speedT - 0.75) * 4.0);
+    }
+
+    // Retain per-particle brightness variation baked into aColor
+    float luma = dot(aColor, vec3(0.299, 0.587, 0.114));
+    float bri  = 0.55 + 0.45 * luma;
+    vColor = speedCol * bri;
+
     // Twinkle
     vAlpha = 0.55 + 0.45 * sin(uTime * aTwinkle + aAngle * 2.7);
-    vColor = aColor;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
