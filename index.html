@@ -808,7 +808,7 @@ renderer.domElement.addEventListener('mousemove', e => {
   gravHint.style.left = e.clientX + 'px';
   gravHint.style.top  = e.clientY + 'px';
 });
-renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active'); posthog.capture('gravity_well_activated'); });
+renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active'); window.posthog?.capture('gravity_well_activated'); });
 renderer.domElement.addEventListener('mouseup',    () => { pressing = false; gravHint.classList.remove('active'); });
 renderer.domElement.addEventListener('mouseenter', () => { gravHint.style.opacity = '1'; });
 renderer.domElement.addEventListener('mouseleave', () => { gravHint.style.opacity = '0'; pressing = false; gravHint.classList.remove('active'); });
@@ -840,7 +840,7 @@ function applyTheme(idx) {
   bloom.strength         = t.bloom[0];
   bloom.radius           = t.bloom[1];
   bloom.threshold        = t.bloom[2];
-  posthog.capture('theme_changed', { theme: t.name, theme_index: idx });
+  window.posthog?.capture('theme_changed', { theme: t.name, theme_index: idx });
 }
 
 // ── Arrow-key rocket steering ─────────────────────────────────
@@ -996,7 +996,7 @@ function updateRocket(dt) {
     rktGroup.visible  = false;
     rktTrLine.visible = false;
     if (followCam) setFollowCam(false);
-    posthog.capture('rocket_swallowed_by_blackhole');
+    window.posthog?.capture('rocket_swallowed_by_blackhole');
     return;
   }
   const g = ROCKET_GM / (r * r);
@@ -1111,7 +1111,7 @@ function setFollowCam(on) {
   orbit.enabled = !on;
   camToggleEl.classList.toggle('active', on);
   camToggleEl.textContent = on ? '[ F ]  ROCKET VIEW' : '[ F ]  UNIVERSE VIEW';
-  posthog.capture('camera_mode_changed', { mode: on ? 'rocket_follow' : 'universe' });
+  window.posthog?.capture('camera_mode_changed', { mode: on ? 'rocket_follow' : 'universe' });
   if (!on) {
     // Smooth restore handled by orbit; snap look-at back to origin
     orbit.target.set(0, 0, 0);
