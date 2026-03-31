@@ -148,7 +148,7 @@ canvas { display: block; }
   </div>
   <div id="controls-wrap">
     <div class="ctrl"><b>DRAG</b> — ORBIT &nbsp;·&nbsp; <b>SCROLL</b> — ZOOM</div>
-    <div class="ctrl"><b>CLICK + HOLD</b> — GRAVITY WELL</div>
+    <div class="ctrl"><b>CURSOR</b> — GRAVITY WELL</div>
     <div class="ctrl"><b>1 · 2 · 3</b> — COLOR THEMES</div>
     <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
     <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
@@ -325,8 +325,8 @@ const VERT = /* glsl */`
     // Black hole event horizon — hard repulsion, prevents particles
     // from crossing into the accretion disk / event horizon radius
     float bhPlaneDist = length(p.xz);
-    if (bhPlaneDist < 11.0 && bhPlaneDist > 0.01) {
-      float f = pow(1.0 - bhPlaneDist / 11.0, 2.5) * 26.0;
+    if (bhPlaneDist < 14.0 && bhPlaneDist > 0.01) {
+      float f = pow(1.0 - bhPlaneDist / 14.0, 2.5) * 30.0;
       p.xz += (p.xz / bhPlaneDist) * f;
     }
 
@@ -621,24 +621,26 @@ function buildBlackHole(theme) {
 
   // Event horizon — dark sphere that occludes particles,
   // with a Fresnel rim glow that bloom will amplify
+  // Event horizon — larger sphere so it fully occludes the inner disk
+  // and prevents bloom bleed from making the centre look white
   bhGroup.add(new THREE.Mesh(
-    new THREE.SphereGeometry(3.2, 40, 40),
+    new THREE.SphereGeometry(5.5, 48, 48),
     new THREE.ShaderMaterial({
       vertexShader:   BH_VERT,
       fragmentShader: BH_FRAG,
-      uniforms: { uRimColor: { value: theme.core.clone() } },
+      uniforms: { uRimColor: { value: new THREE.Color('#1a2fff') } },
       transparent: false,
       depthWrite: true,
     })
   ));
 
-  // Photon sphere — the bright glowing ring just outside event horizon
+  // Photon sphere — sits just outside the event horizon
   const photon = new THREE.Mesh(
-    new THREE.TorusGeometry(4.6, 0.25, 16, 120),
+    new THREE.TorusGeometry(6.2, 0.22, 16, 120),
     new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#aabbff'),  // cold blue-white photon sphere
+      color: new THREE.Color('#aabbff'),
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.90,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
@@ -646,12 +648,13 @@ function buildBlackHole(theme) {
   photon.rotation.x = Math.PI / 2;
   bhGroup.add(photon);
 
-  // Accretion disk — black-blue-white rings, no theme override
+  // Accretion disk — starts beyond the event horizon sphere,
+  // dimmer inner ring so bloom doesn't wash out the black core
   [
-    { inner: 3.6,  outer: 5.8,  opacity: 0.80, color: new THREE.Color('#c8d8ff') }, // near-white hot ring
-    { inner: 6.0,  outer: 8.5,  opacity: 0.40, color: new THREE.Color('#2244ff') }, // bright blue
-    { inner: 8.8,  outer: 12.0, opacity: 0.16, color: new THREE.Color('#0a0f55') }, // deep navy
-    { inner: 12.5, outer: 17.0, opacity: 0.05, color: new THREE.Color('#06091e') }, // almost black
+    { inner: 6.5,  outer: 8.5,  opacity: 0.35, color: new THREE.Color('#88aaff') }, // soft blue-white
+    { inner: 8.8,  outer: 12.0, opacity: 0.22, color: new THREE.Color('#2244ff') }, // bright blue
+    { inner: 12.2, outer: 15.5, opacity: 0.10, color: new THREE.Color('#0a0f55') }, // deep navy
+    { inner: 15.8, outer: 20.0, opacity: 0.04, color: new THREE.Color('#06091e') }, // near black
   ].forEach(({ inner, outer, opacity, color }) => {
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(inner, outer, 100),
