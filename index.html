@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>COSMOS — Interactive Universe</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #000;
+  overflow: hidden;
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  user-select: none;
+}
+
+canvas { display: block; }
+
+/* ── LOADING ── */
+#loader {
+  position: fixed; inset: 0;
+  background: #000;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 32px;
+  z-index: 999;
+  transition: opacity 1.2s ease;
+}
+#loader.fade { opacity: 0; pointer-events: none; }
+#loader-title {
+  font-size: 48px;
+  font-weight: 100;
+  letter-spacing: 20px;
+  color: rgba(255,255,255,0.88);
+  text-indent: 20px;
+}
+#loader-sub {
+  font-size: 9px;
+  letter-spacing: 6px;
+  color: rgba(255,255,255,0.2);
+  text-indent: 6px;
+}
+#loader-ring {
+  width: 32px; height: 32px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-top-color: rgba(255,255,255,0.55);
+  border-radius: 50%;
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── HUD ── */
+#hud {
+  position: fixed; inset: 0;
+  pointer-events: none;
+}
+#vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center,
+    transparent 50%, rgba(0,0,0,0.75) 100%);
+}
+
+#title-wrap {
+  position: absolute;
+  top: 30px; left: 34px;
+}
+#cosmos-title {
+  font-size: 46px;
+  font-weight: 100;
+  letter-spacing: 20px;
+  color: rgba(255,255,255,0.92);
+  line-height: 1;
+  text-indent: 20px;
+}
+#cosmos-sub {
+  margin-top: 7px;
+  font-size: 8.5px;
+  letter-spacing: 5px;
+  color: rgba(255,255,255,0.22);
+}
+
+#controls-wrap {
+  position: absolute;
+  bottom: 28px; left: 34px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ctrl {
+  font-size: 8.5px;
+  letter-spacing: 1.8px;
+  color: rgba(255,255,255,0.16);
+}
+.ctrl b { color: rgba(255,255,255,0.42); font-weight: 600; }
+
+#info-wrap {
+  position: absolute;
+  top: 30px; right: 34px;
+  text-align: right;
+}
+#theme-label {
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,0.5);
+  transition: color 0.4s;
+}
+#particle-count {
+  margin-top: 10px;
+  font-size: 8.5px;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.18);
+}
+#fps-label {
+  margin-top: 5px;
+  font-size: 8.5px;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.12);
+}
+
+/* ── GRAVITY CURSOR ── */
+#gravity-hint {
+  position: fixed;
+  width: 44px; height: 44px;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.15s;
+  z-index: 998;
+}
+#gravity-hint.active {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.4);
+  border-color: rgba(255,255,255,0.7);
+  box-shadow: 0 0 20px rgba(255,255,255,0.2);
+}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div id="loader-title">COSMOS</div>
+  <div id="loader-sub">INITIALIZING UNIVERSE</div>
+  <div id="loader-ring"></div>
+</div>
+
+<div id="hud">
+  <div id="vignette"></div>
+  <div id="title-wrap">
+    <div id="cosmos-title">COSMOS</div>
+    <div id="cosmos-sub">INTERACTIVE UNIVERSE SIMULATOR</div>
+  </div>
+  <div id="controls-wrap">
+    <div class="ctrl"><b>DRAG</b> — ORBIT &nbsp;·&nbsp; <b>SCROLL</b> — ZOOM</div>
+    <div class="ctrl"><b>CLICK + HOLD</b> — GRAVITY WELL</div>
+    <div class="ctrl"><b>1 · 2 · 3</b> — COLOR THEMES</div>
+    <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
+    <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
+  </div>
+  <div id="info-wrap">
+    <div id="theme-label">NEBULA BLUE</div>
+    <div id="particle-count">100,000 PARTICLES</div>
+    <div id="fps-label" id="fps">·· FPS</div>
+  </div>
+</div>
+
+<div id="gravity-hint"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
+
+// ─────────────────────────────────────────────────────────────
+//  THEMES
+// ─────────────────────────────────────────────────────────────
+const THEMES = [
+  {
+    name:  'NEBULA BLUE',
+    inner: new THREE.Color('#3388ff'),
+    mid:   new THREE.Color('#993388'),
+    outer: new THREE.Color('#ff6622'),
+    core:  new THREE.Color('#bbddff'),
+    bloom: [1.5, 0.65, 0.04],
+  },
+  {
+    name:  'COSMIC ROSE',
+    inner: new THREE.Color('#ff44cc'),
+    mid:   new THREE.Color('#7733ff'),
+    outer: new THREE.Color('#22aaff'),
+    core:  new THREE.Color('#ffd0ff'),
+    bloom: [1.4, 0.7,  0.04],
+  },
+  {
+    name:  'EMERALD VOID',
+    inner: new THREE.Color('#22ff88'),
+    mid:   new THREE.Color('#119944'),
+    outer: new THREE.Color('#ff3333'),
+    core:  new THREE.Color('#aaffd0'),
+    bloom: [1.3, 0.55, 0.04],
+  },
+];
+
+let themeIdx = 0;
+
+// ─────────────────────────────────────────────────────────────
+//  RENDERER
+// ─────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({
+  antialias: false,
+  powerPreference: 'high-performance',
+});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping    = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace    = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// ─────────────────────────────────────────────────────────────
+//  SCENE / CAMERA
+// ─────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+  60, window.innerWidth / window.innerHeight, 0.1, 2000
+);
+camera.position.set(0, 58, 115);
+camera.lookAt(0, 0, 0);
+
+// ─────────────────────────────────────────────────────────────
+//  POST-PROCESSING
+// ─────────────────────────────────────────────────────────────
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  1.5, 0.65, 0.04
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ─────────────────────────────────────────────────────────────
+//  ORBIT CONTROLS
+// ─────────────────────────────────────────────────────────────
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping    = true;
+orbit.dampingFactor    = 0.04;
+orbit.minDistance      = 18;
+orbit.maxDistance      = 400;
+orbit.autoRotate       = true;
+orbit.autoRotateSpeed  = 0.22;
+
+// ─────────────────────────────────────────────────────────────
+//  SHADERS
+// ─────────────────────────────────────────────────────────────
+const VERT = /* glsl */`
+  attribute float aAngle;
+  attribute float aRadius;
+  attribute float aY;
+  attribute float aSize;
+  attribute vec3  aColor;
+  attribute float aTwinkle;
+  attribute float aArm;
+
+  uniform float uTime;
+  uniform float uSpeed;
+  uniform vec3  uGrav;
+  uniform float uGravStr;
+  uniform float uPulse;
+
+  varying vec3  vColor;
+  varying float vAlpha;
+
+  void main() {
+    // Differential (Keplerian) rotation — inner orbits faster
+    float omega = uSpeed / sqrt(max(aRadius, 0.4));
+    float theta = aAngle + uTime * omega;
+
+    vec3 p;
+    p.x = cos(theta) * aRadius;
+    p.z = sin(theta) * aRadius;
+    p.y = aY;
+
+    // Gravity-well distortion
+    vec3  dg   = uGrav - p;
+    float dLen = length(dg);
+    if (dLen < 24.0 && uGravStr > 0.001) {
+      float f = pow(1.0 - dLen / 24.0, 2.0) * uGravStr * 7.0;
+      p += normalize(dg) * f;
+    }
+
+    // Pulse ripple from core
+    float pulse = sin(uTime * 2.0 - aRadius * 0.25) * 0.012 * uPulse;
+    p.y += pulse;
+
+    // Twinkle
+    vAlpha = 0.55 + 0.45 * sin(uTime * aTwinkle + aAngle * 2.7);
+    vColor = aColor;
+
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+
+    float d = clamp(-mv.z, 1.0, 800.0);
+    gl_PointSize = clamp(aSize * 340.0 / d, 0.2, 16.0);
+  }
+`;
+
+const FRAG = /* glsl */`
+  varying vec3  vColor;
+  varying float vAlpha;
+
+  void main() {
+    vec2  uv   = gl_PointCoord - 0.5;
+    float dist = length(uv);
+    if (dist > 0.5) discard;
+
+    float core = 1.0 - smoothstep(0.0, 0.15, dist);
+    float halo = pow(max(0.0, 1.0 - dist * 2.0), 2.8);
+    float a    = (core * 0.88 + halo * 0.12) * vAlpha;
+
+    // Slightly overbright core for bloom to catch
+    vec3 col = vColor * (1.0 + core * 2.2);
+
+    gl_FragColor = vec4(col, a);
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────
+//  NEBULA TEXTURE GENERATOR
+// ─────────────────────────────────────────────────────────────
+function makeNebulaTex(color) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const { r, g, b } = color;
+  const rgba = `rgba(${~~(r*255)},${~~(g*255)},${~~(b*255)}`;
+  const grd  = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grd.addColorStop(0,   rgba + ',1)');
+  grd.addColorStop(0.4, rgba + ',0.4)');
+  grd.addColorStop(1,   rgba + ',0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SCENE OBJECTS
+// ─────────────────────────────────────────────────────────────
+const N = 100000;
+let galaxyPts = null, galaxyMat = null;
+let coreGroup = new THREE.Group();
+let nebulaGroup = new THREE.Group();
+scene.add(coreGroup);
+scene.add(nebulaGroup);
+let simSpeed = 0.42;
+
+// ── Galaxy ────────────────────────────────────────────────────
+function buildGalaxy(theme) {
+  if (galaxyPts) {
+    scene.remove(galaxyPts);
+    galaxyPts.geometry.dispose();
+    galaxyMat.dispose();
+  }
+
+  const angles  = new Float32Array(N);
+  const radii   = new Float32Array(N);
+  const ys      = new Float32Array(N);
+  const sizes   = new Float32Array(N);
+  const colors  = new Float32Array(N * 3);
+  const twinks  = new Float32Array(N);
+  const arms    = new Float32Array(N);
+  const dummyP  = new Float32Array(N * 3);
+
+  const ARMS  = 3;
+  const RMAX  = 50;
+  const SPIN  = 1.9;
+
+  for (let i = 0; i < N; i++) {
+    const inCore = Math.random() < 0.10;
+    let r, baseAngle;
+
+    if (inCore) {
+      r         = Math.random() * 5;
+      baseAngle = Math.random() * Math.PI * 2;
+    } else {
+      r              = Math.pow(Math.random(), 0.62) * RMAX;
+      const arm      = Math.floor(Math.random() * ARMS);
+      const armOff   = (arm / ARMS) * Math.PI * 2;
+      const spiral   = r * SPIN * (0.88 + Math.random() * 0.24);
+      const scatter  = (Math.random() - 0.5) * Math.pow(r / RMAX, 0.7) * 0.9;
+      baseAngle      = armOff + spiral + scatter;
+      arms[i]        = arm;
+    }
+
+    radii[i]  = r + (Math.random() - 0.5) * 0.6;
+    angles[i] = baseAngle;
+
+    const hRange = inCore ? 4 : (1 - r / RMAX) * 2.8 + 0.2;
+    ys[i] = (Math.random() - 0.5) * hRange;
+
+    sizes[i] = inCore
+      ? Math.random() * 3.2 + 1.6
+      : Math.random() * 1.9 + 0.35;
+
+    // Color
+    let col;
+    const t = r / RMAX;
+    if (r < 2.2) {
+      col = theme.core.clone();
+    } else if (t < 0.5) {
+      col = theme.inner.clone().lerp(theme.mid, t * 2);
+    } else {
+      col = theme.mid.clone().lerp(theme.outer, (t - 0.5) * 2);
+    }
+    const bri = 0.60 + Math.random() * 0.40;
+    colors[i*3]   = col.r * bri;
+    colors[i*3+1] = col.g * bri;
+    colors[i*3+2] = col.b * bri;
+
+    twinks[i] = Math.random() * 5.5 + 0.4;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(dummyP, 3));
+  geo.setAttribute('aAngle',   new THREE.BufferAttribute(angles, 1));
+  geo.setAttribute('aRadius',  new THREE.BufferAttribute(radii,  1));
+  geo.setAttribute('aY',       new THREE.BufferAttribute(ys,     1));
+  geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,  1));
+  geo.setAttribute('aColor',   new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('aTwinkle', new THREE.BufferAttribute(twinks, 1));
+  geo.setAttribute('aArm',     new THREE.BufferAttribute(arms,   1));
+
+  galaxyMat = new THREE.ShaderMaterial({
+    vertexShader:   VERT,
+    fragmentShader: FRAG,
+    uniforms: {
+      uTime:    { value: 0 },
+      uSpeed:   { value: simSpeed },
+      uGrav:    { value: new THREE.Vector3(9999, 0, 9999) },
+      uGravStr: { value: 0 },
+      uPulse:   { value: 1.0 },
+    },
+    transparent: true,
+    depthWrite:  false,
+    blending:    THREE.AdditiveBlending,
+  });
+
+  galaxyPts = new THREE.Points(geo, galaxyMat);
+  scene.add(galaxyPts);
+}
+
+// ── Core Glow ─────────────────────────────────────────────────
+function buildCore(theme) {
+  coreGroup.clear();
+
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(2.1, 20, 20),
+    new THREE.MeshBasicMaterial({ color: theme.core })
+  );
+  coreGroup.add(sphere);
+
+  // Accretion disk rings
+  [
+    { inner: 2.8, outer: 5.5,  opacity: 0.10, color: theme.inner },
+    { inner: 5.8, outer: 9.0,  opacity: 0.055, color: theme.mid  },
+    { inner: 9.5, outer: 14.0, opacity: 0.025, color: theme.outer },
+  ].forEach(({ inner, outer, opacity, color }) => {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(inner, outer, 80),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    coreGroup.add(ring);
+  });
+}
+
+// ── Nebula Clouds ─────────────────────────────────────────────
+function buildNebula(theme) {
+  nebulaGroup.clear();
+
+  const configs = [
+    { pos: [-16, 6, -8],   size: 85,  color: theme.inner, op: 0.13 },
+    { pos: [20, -4, 18],   size: 70,  color: theme.outer, op: 0.10 },
+    { pos: [-4, 10, 28],   size: 95,  color: theme.mid,   op: 0.09 },
+    { pos: [28, 2, -18],   size: 60,  color: theme.inner.clone().lerp(theme.core, 0.4), op: 0.08 },
+    { pos: [-28, -6, 8],   size: 80,  color: theme.outer.clone().lerp(theme.mid, 0.5), op: 0.07 },
+    { pos: [5, -12, -30],  size: 110, color: theme.mid.clone().lerp(theme.inner, 0.3), op: 0.06 },
+  ];
+
+  configs.forEach(({ pos, size, color, op }) => {
+    const mat = new THREE.SpriteMaterial({
+      map: makeNebulaTex(color),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      opacity: op,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.set(...pos);
+    sprite.scale.set(size, size, 1);
+    nebulaGroup.add(sprite);
+  });
+}
+
+// ── Background Stars ──────────────────────────────────────────
+function buildBgStars() {
+  const CNT = 5000;
+  const pos = new Float32Array(CNT * 3);
+  for (let i = 0; i < CNT; i++) {
+    const u = Math.random(), v = Math.random();
+    const th = 2 * Math.PI * u;
+    const ph = Math.acos(2 * v - 1);
+    const r  = 480 + Math.random() * 200;
+    pos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = r * Math.sin(ph) * Math.sin(th);
+    pos[i*3+2] = r * Math.cos(ph);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.55,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.55,
+  });
+  scene.add(new THREE.Points(geo, mat));
+}
+
+// ─────────────────────────────────────────────────────────────
+//  MOUSE / GRAVITY
+// ─────────────────────────────────────────────────────────────
+const mouse2   = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const yPlane    = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const gPoint    = new THREE.Vector3();
+let   pressing  = false, gravStr = 0;
+
+const gravHint  = document.getElementById('gravity-hint');
+let   mouseX = 0, mouseY = 0;
+
+renderer.domElement.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  mouse2.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse2.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  gravHint.style.left = e.clientX + 'px';
+  gravHint.style.top  = e.clientY + 'px';
+});
+renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active');    });
+renderer.domElement.addEventListener('mouseup',    () => { pressing = false; gravHint.classList.remove('active'); });
+window.addEventListener('blur',                    () => { pressing = false; gravHint.classList.remove('active'); });
+
+renderer.domElement.addEventListener('mouseenter', () => { gravHint.style.opacity = '0.6'; });
+renderer.domElement.addEventListener('mouseleave', () => { gravHint.style.opacity = '0'; pressing = false; });
+
+function tickGravity() {
+  if (!galaxyMat) return;
+  raycaster.setFromCamera(mouse2, camera);
+  raycaster.ray.intersectPlane(yPlane, gPoint);
+  gravStr += ((pressing ? 1 : 0) - gravStr) * 0.07;
+  galaxyMat.uniforms.uGrav.value.copy(gPoint);
+  galaxyMat.uniforms.uGravStr.value = gravStr;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  KEYBOARD
+// ─────────────────────────────────────────────────────────────
+const themeEl = document.getElementById('theme-label');
+const fpsEl   = document.getElementById('fps-label');
+
+function applyTheme(idx) {
+  themeIdx = idx;
+  const t = THEMES[idx];
+  buildGalaxy(t);
+  buildCore(t);
+  buildNebula(t);
+  themeEl.textContent    = t.name;
+  bloom.strength         = t.bloom[0];
+  bloom.radius           = t.bloom[1];
+  bloom.threshold        = t.bloom[2];
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === '1') applyTheme(0);
+  if (e.key === '2') applyTheme(1);
+  if (e.key === '3') applyTheme(2);
+  if (e.key === '+' || e.key === '=') {
+    simSpeed = Math.min(simSpeed * 1.3, 5.0);
+    if (galaxyMat) galaxyMat.uniforms.uSpeed.value = simSpeed;
+  }
+  if (e.key === '-' || e.key === '_') {
+    simSpeed = Math.max(simSpeed * 0.77, 0.02);
+    if (galaxyMat) galaxyMat.uniforms.uSpeed.value = simSpeed;
+  }
+  if (e.key === ' ') {
+    e.preventDefault();
+    camera.position.set(0, 58, 115);
+    camera.lookAt(0, 0, 0);
+    orbit.reset();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────────────────────
+buildBgStars();
+applyTheme(0);
+
+// Hide loader after two frames (let GPU warm up)
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    const loader = document.getElementById('loader');
+    loader.classList.add('fade');
+    setTimeout(() => loader?.remove(), 1300);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+//  RENDER LOOP
+// ─────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+let fFrames = 0, fLast = performance.now();
+
+// Slow pulse animation on core
+let pulseT = 0;
+
+(function loop() {
+  requestAnimationFrame(loop);
+
+  const elapsed = clock.getElapsedTime();
+  pulseT += 0.016;
+
+  if (galaxyMat) {
+    galaxyMat.uniforms.uTime.value  = elapsed;
+    galaxyMat.uniforms.uPulse.value = 0.6 + 0.4 * Math.sin(pulseT * 0.7);
+  }
+
+  // Slowly rotate nebula sprites for atmosphere
+  nebulaGroup.rotation.y = elapsed * 0.018;
+
+  tickGravity();
+  orbit.update();
+  composer.render();
+
+  // FPS counter
+  fFrames++;
+  const now = performance.now();
+  if (now - fLast > 700) {
+    fpsEl.textContent = Math.round(fFrames * 1000 / (now - fLast)) + ' FPS';
+    fFrames = 0;
+    fLast   = now;
+  }
+})();
+
+// ─────────────────────────────────────────────────────────────
+//  RESIZE
+// ─────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloom.resolution.set(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
