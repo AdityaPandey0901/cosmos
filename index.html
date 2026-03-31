@@ -433,9 +433,9 @@ const JET_VERT = /* glsl */`
     // Hot white at base → cool theme colour further out
     vColor = mix(uJetHot, uJetCool, pow(t, 0.7));
 
-    // Flicker + fade with distance
+    // Flicker + fade with distance — overall dimmed so jets don't blur
     float flicker = 0.82 + 0.18 * sin(uTime * 14.0 + aPhase * 53.0);
-    vAlpha = pow(1.0 - t, 1.5) * flicker;
+    vAlpha = pow(1.0 - t, 1.8) * flicker * 0.38;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
@@ -659,7 +659,7 @@ function buildJets(theme) {
     uniforms: {
       uTime:    { value: 0 },
       uJetHot:  { value: new THREE.Color('#ffffff') },       // white at throat
-      uJetCool: { value: new THREE.Color('#0822bb') },       // deep blue further out
+      uJetCool: { value: new THREE.Color('#cc1100') },       // deep red at tips
     },
     transparent: true,
     depthWrite:  false,
