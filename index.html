@@ -89,6 +89,39 @@ canvas { display: block; }
 }
 .ctrl b { color: rgba(255,255,255,0.42); font-weight: 600; }
 
+/* ── D-PAD ── */
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 18px);
+  grid-template-rows: repeat(2, 18px);
+  gap: 3px;
+  margin-top: 4px;
+}
+.dpad-label {
+  font-size: 7px;
+  letter-spacing: 1.6px;
+  color: rgba(255,255,255,0.16);
+  margin-bottom: 0px;
+  margin-top: 6px;
+}
+.dk {
+  width: 18px; height: 18px;
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px;
+  color: rgba(255,255,255,0.30);
+  background: rgba(255,255,255,0.04);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  user-select: none;
+}
+.dk.pressed {
+  background: rgba(100,160,255,0.18);
+  color: rgba(160,200,255,0.90);
+  border-color: rgba(100,160,255,0.45);
+}
+.dk-empty { visibility: hidden; }
+
 #info-wrap {
   position: absolute;
   top: 30px; right: 34px;
@@ -152,6 +185,15 @@ canvas { display: block; }
     <div class="ctrl"><b>1 · 2 · 3</b> — COLOR THEMES</div>
     <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
     <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
+    <div class="dpad-label">ROCKET STEERING</div>
+    <div class="dpad">
+      <div class="dk-empty"></div>
+      <div class="dk" id="dk-up">▲</div>
+      <div class="dk-empty"></div>
+      <div class="dk" id="dk-left">◀</div>
+      <div class="dk" id="dk-down">▼</div>
+      <div class="dk" id="dk-right">▶</div>
+    </div>
   </div>
   <div id="info-wrap">
     <div id="theme-label">NEBULA BLUE</div>
@@ -768,10 +810,19 @@ function applyTheme(idx) {
 
 // ── Arrow-key rocket steering ─────────────────────────────────
 const rktKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
-window.addEventListener('keyup', e => { if (e.key in rktKeys) rktKeys[e.key] = false; });
+const dkEls = {
+  ArrowUp:    document.getElementById('dk-up'),
+  ArrowDown:  document.getElementById('dk-down'),
+  ArrowLeft:  document.getElementById('dk-left'),
+  ArrowRight: document.getElementById('dk-right'),
+};
+function syncDpad() {
+  for (const [k, el] of Object.entries(dkEls)) el.classList.toggle('pressed', rktKeys[k]);
+}
+window.addEventListener('keyup', e => { if (e.key in rktKeys) { rktKeys[e.key] = false; syncDpad(); } });
 
 window.addEventListener('keydown', e => {
-  if (e.key in rktKeys) { e.preventDefault(); rktKeys[e.key] = true; return; }
+  if (e.key in rktKeys) { e.preventDefault(); rktKeys[e.key] = true; syncDpad(); return; }
   if (e.key === '1') applyTheme(0);
   if (e.key === '2') applyTheme(1);
   if (e.key === '3') applyTheme(2);
