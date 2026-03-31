@@ -793,10 +793,19 @@ const ROCKET_GM   = 14000;  // gravitational parameter — controls orbit speed
 const TRAIL_MAX   = 420;    // max trail positions stored
 const TRAIL_EVERY = 3;      // record position every N frames
 
-// Physics state — start at aphelion (Z=122) with tangential velocity (+X)
-const rktPos = new THREE.Vector3(0, 0, 122);
-const rktVel = new THREE.Vector3(9.1, 0, 0);
+// Physics state — 45° tilted orbit
+// Start at aphelion on the +X axis; velocity is in the plane tilted 45° in YZ.
+// Plane normal = normalise((0,122,0)×(0,6.44,-6.44)) = (0, 0.707, 0.707)
+const rktPos = new THREE.Vector3(122, 0, 0);
+const rktVel = new THREE.Vector3(0, 6.44, -6.44);   // tangential, 45° tilted
+
+// Store the orbital-plane normal at t=0 so the rocket can fight its way back
+const rktL0 = new THREE.Vector3()
+  .crossVectors(rktPos, rktVel)
+  .normalize();   // ≈ (0, 0.707, 0.707)
+
 let   rktTick = 0;
+let   rktFighting = false;   // true while actively correcting course
 
 // ── Trail ─────────────────────────────────────────────────────
 const rktTrail  = [];
@@ -883,21 +892,37 @@ function updateRocket(dt) {
     rktPos.normalize().multiplyScalar(4.5);
   }
 
-  // ── Click gravity (same well as particles) ────────────────────
+  // ── Click gravity — rocket partially resists (fighter pilot) ──
+  // It doesn't go quietly: only 38% of the gravity force gets through.
   if (gravStr > 0.01) {
     _rktDG.copy(gPoint).sub(rktPos);
     const d = _rktDG.length();
     if (d < 38 && d > 0.1) {
-      const f = Math.pow(1 - d / 38, 2) * gravStr * 320 * dt;
+      const f = Math.pow(1 - d / 38, 2) * gravStr * 320 * dt * 0.38;
       rktVel.addScaledVector(_rktDG.normalize(), f);
     }
+    rktFighting = false;   // being pulled — not yet fighting back
+  } else {
+    rktFighting = true;
   }
 
   // ── Integrate ─────────────────────────────────────────────────
   rktPos.addScaledVector(rktVel, dt);
 
-  // Soft spring back to disk plane (Y ≈ 0) so it stays co-planar
-  rktVel.y -= rktPos.y * 1.8 * dt;
+  // ── Corrective autopilot — return to original orbital plane ───
+  // When gravity is released the rocket fires thrusters to:
+  //   1. Kill any out-of-plane velocity (damp it quickly)
+  //   2. Spring back to the original inclined plane if drifted off it
+  if (rktFighting) {
+    const vPerp = rktVel.dot(rktL0);       // velocity component ⊥ orbital plane
+    const rPerp = rktPos.dot(rktL0);       // distance from orbital plane
+
+    // Damp out-of-plane velocity — feels like active thrusting
+    rktVel.addScaledVector(rktL0, -vPerp * Math.min(0.14, 7 * dt));
+
+    // Spring position back toward orbital plane
+    rktVel.addScaledVector(rktL0, -rPerp * 4.0 * dt);
+  }
 
   // ── Orient rocket nose along velocity ─────────────────────────
   const spd = rktVel.length();
@@ -907,10 +932,12 @@ function updateRocket(dt) {
   }
   rktGroup.position.copy(rktPos);
 
-  // ── Exhaust flicker ───────────────────────────────────────────
-  const t = performance.now();
-  _exhPlume.material.opacity = 0.70 + 0.22 * Math.sin(t * 0.028);
-  _exhCore.scale.y           = 0.75 + 0.50 * Math.sin(t * 0.041);
+  // ── Exhaust — brighter & faster when fighting back ────────────
+  const t   = performance.now();
+  const fightBoost = rktFighting ? 1.35 : 1.0;
+  const flickerSpd = rktFighting ? 0.048 : 0.028;
+  _exhPlume.material.opacity = Math.min(1, (0.70 + 0.22 * Math.sin(t * flickerSpd)) * fightBoost);
+  _exhCore.scale.y           = (0.75 + 0.50 * Math.sin(t * (rktFighting ? 0.062 : 0.041))) * fightBoost;
 
   // ── Record trail ──────────────────────────────────────────────
   if (++rktTick >= TRAIL_EVERY) {
