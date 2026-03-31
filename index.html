@@ -116,14 +116,19 @@ canvas { display: block; }
 /* ── GRAVITY CURSOR ── */
 #gravity-hint {
   position: fixed;
-  width: 28px; height: 28px;
-  border: 1px solid rgba(255,255,255,0.35);
+  width: 36px; height: 36px;
+  border: 1px solid rgba(100,140,255,0.35);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.2s, transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   z-index: 998;
+}
+#gravity-hint.active {
+  transform: translate(-50%, -50%) scale(1.5);
+  border-color: rgba(100,160,255,0.85);
+  box-shadow: 0 0 18px rgba(80,120,255,0.35);
 }
 </style>
 </head>
@@ -143,7 +148,7 @@ canvas { display: block; }
   </div>
   <div id="controls-wrap">
     <div class="ctrl"><b>DRAG</b> — ORBIT &nbsp;·&nbsp; <b>SCROLL</b> — ZOOM</div>
-    <div class="ctrl"><b>CURSOR</b> — GRAVITY WELL</div>
+    <div class="ctrl"><b>CLICK + HOLD</b> — GRAVITY WELL</div>
     <div class="ctrl"><b>1 · 2 · 3</b> — COLOR THEMES</div>
     <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
     <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
@@ -329,20 +334,28 @@ const VERT = /* glsl */`
     float pulse = sin(uTime * 2.0 - aRadius * 0.25) * 0.012 * uPulse;
     p.y += pulse;
 
-    // ── Speed-based colour: blue (slow/inner) → red (fast/outer) ─
+    // ── Speed-based colour: black (core) → blue → purple → red ──
     // Tangential speed = omega * r; normalise so outer edge ≈ 1.0
     float speedT = clamp((omega * aRadius) / (uSpeed * 44.0), 0.0, 1.0);
 
-    // Full thermal gradient: blue → cyan → green → yellow → red
+    // Black → deep blue → royal blue → violet/purple → crimson → bright red
+    // No green or yellow — pure black-blue-red spectrum
     vec3 speedCol;
-    if (speedT < 0.25) {
-      speedCol = mix(vec3(0.05, 0.10, 1.00), vec3(0.00, 0.85, 1.00), speedT * 4.0);
-    } else if (speedT < 0.50) {
-      speedCol = mix(vec3(0.00, 0.85, 1.00), vec3(0.05, 1.00, 0.10), (speedT - 0.25) * 4.0);
-    } else if (speedT < 0.75) {
-      speedCol = mix(vec3(0.05, 1.00, 0.10), vec3(1.00, 0.90, 0.00), (speedT - 0.50) * 4.0);
+    if (speedT < 0.20) {
+      // black → deep blue
+      speedCol = mix(vec3(0.00, 0.00, 0.00), vec3(0.00, 0.03, 0.55), speedT / 0.20);
+    } else if (speedT < 0.45) {
+      // deep blue → royal blue
+      speedCol = mix(vec3(0.00, 0.03, 0.55), vec3(0.08, 0.15, 1.00), (speedT - 0.20) / 0.25);
+    } else if (speedT < 0.68) {
+      // royal blue → violet-purple
+      speedCol = mix(vec3(0.08, 0.15, 1.00), vec3(0.55, 0.05, 0.70), (speedT - 0.45) / 0.23);
+    } else if (speedT < 0.85) {
+      // violet-purple → deep crimson
+      speedCol = mix(vec3(0.55, 0.05, 0.70), vec3(0.90, 0.03, 0.12), (speedT - 0.68) / 0.17);
     } else {
-      speedCol = mix(vec3(1.00, 0.90, 0.00), vec3(1.00, 0.04, 0.00), (speedT - 0.75) * 4.0);
+      // deep crimson → bright red
+      speedCol = mix(vec3(0.90, 0.03, 0.12), vec3(1.00, 0.10, 0.02), (speedT - 0.85) / 0.15);
     }
 
     // Retain per-particle brightness variation baked into aColor
@@ -623,7 +636,7 @@ function buildBlackHole(theme) {
   const photon = new THREE.Mesh(
     new THREE.TorusGeometry(4.6, 0.25, 16, 120),
     new THREE.MeshBasicMaterial({
-      color: theme.core,
+      color: new THREE.Color('#aabbff'),  // cold blue-white photon sphere
       transparent: true,
       opacity: 0.95,
       blending: THREE.AdditiveBlending,
@@ -633,12 +646,12 @@ function buildBlackHole(theme) {
   photon.rotation.x = Math.PI / 2;
   bhGroup.add(photon);
 
-  // Accretion disk — concentric rings that get dimmer outward
+  // Accretion disk — black-blue-white rings, no theme override
   [
-    { inner: 3.6,  outer: 5.8,  opacity: 0.75, color: theme.core  },
-    { inner: 6.0,  outer: 8.5,  opacity: 0.40, color: theme.inner },
-    { inner: 8.8,  outer: 12.0, opacity: 0.18, color: theme.mid   },
-    { inner: 12.5, outer: 17.0, opacity: 0.07, color: theme.outer },
+    { inner: 3.6,  outer: 5.8,  opacity: 0.80, color: new THREE.Color('#c8d8ff') }, // near-white hot ring
+    { inner: 6.0,  outer: 8.5,  opacity: 0.40, color: new THREE.Color('#2244ff') }, // bright blue
+    { inner: 8.8,  outer: 12.0, opacity: 0.16, color: new THREE.Color('#0a0f55') }, // deep navy
+    { inner: 12.5, outer: 17.0, opacity: 0.05, color: new THREE.Color('#06091e') }, // almost black
   ].forEach(({ inner, outer, opacity, color }) => {
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(inner, outer, 100),
@@ -687,8 +700,8 @@ function buildJets(theme) {
     fragmentShader: JET_FRAG,
     uniforms: {
       uTime:    { value: 0 },
-      uJetHot:  { value: new THREE.Color('#ffffff') },
-      uJetCool: { value: theme.inner.clone().multiplyScalar(0.8) },
+      uJetHot:  { value: new THREE.Color('#ffffff') },       // white at throat
+      uJetCool: { value: new THREE.Color('#0822bb') },       // deep blue further out
     },
     transparent: true,
     depthWrite:  false,
@@ -753,14 +766,14 @@ function buildBgStars() {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  MOUSE / GRAVITY  (always-on — no click required)
+//  MOUSE / GRAVITY  (click + hold to activate)
 // ─────────────────────────────────────────────────────────────
 const mouse2    = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 const yPlane    = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const gPoint    = new THREE.Vector3();
 let   gravStr   = 0;
-let   mouseOnCanvas = false;
+let   pressing  = false;
 
 const gravHint = document.getElementById('gravity-hint');
 
@@ -770,22 +783,17 @@ renderer.domElement.addEventListener('mousemove', e => {
   gravHint.style.left = e.clientX + 'px';
   gravHint.style.top  = e.clientY + 'px';
 });
-renderer.domElement.addEventListener('mouseenter', () => {
-  mouseOnCanvas = true;
-  gravHint.style.opacity = '1';
-});
-renderer.domElement.addEventListener('mouseleave', () => {
-  mouseOnCanvas = false;
-  gravHint.style.opacity = '0';
-});
+renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active');    });
+renderer.domElement.addEventListener('mouseup',    () => { pressing = false; gravHint.classList.remove('active'); });
+renderer.domElement.addEventListener('mouseenter', () => { gravHint.style.opacity = '1'; });
+renderer.domElement.addEventListener('mouseleave', () => { gravHint.style.opacity = '0'; pressing = false; gravHint.classList.remove('active'); });
+window.addEventListener('blur',                    () => { pressing = false; gravHint.classList.remove('active'); });
 
 function tickGravity() {
   if (!galaxyMat) return;
   raycaster.setFromCamera(mouse2, camera);
   raycaster.ray.intersectPlane(yPlane, gPoint);
-  // Smoothly ramp to 0.6 when cursor is on canvas, fade out when it leaves
-  const target = mouseOnCanvas ? 0.6 : 0;
-  gravStr += (target - gravStr) * 0.055;
+  gravStr += ((pressing ? 1.0 : 0) - gravStr) * 0.07;
   galaxyMat.uniforms.uGrav.value.copy(gPoint);
   galaxyMat.uniforms.uGravStr.value = gravStr;
 }
