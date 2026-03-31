@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <title>COSMOS — Interactive Universe</title>
 <link rel="icon" type="image/png" href="favicon.png">
+<script>
+  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(s=s||{},s.api_host=s.api_host||"https://us.i.posthog.com",s.token=i,a||(a=i),u=s.persistence=="memory"?e:window["posthog_"+a],u||(window["posthog_"+a]=u=e._i[e._i.length-1]={}),u._i=[],u.init=function(){},u.identify=function(t,e,o){u.push(["identify",t,e,o])},u.capture=function(){u.push(["capture"].concat(Array.prototype.slice.call(arguments,0)))},u.reset=function(){u.push(["reset"])},u.people={},u.people.set=function(){u.people.push(["set"].concat(Array.prototype.slice.call(arguments,0)))},u.featureFlags={},u.featureFlags.override=function(){u.featureFlags.push(["override"].concat(Array.prototype.slice.call(arguments,0)))},u.toString=function(t){var e="posthog";return a&&a!==e&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString()+" (stub) people"},s.loaded&&s.loaded(u),e._i.push([i,s,a]),e.__SV=1)}(document,window.posthog||[])}(document,window.posthog||[]);
+  posthog.init('phc_kuiFsTiPyXdS1ud7tNliaNuwHgyt7lN9CQ9osSRoGX2', { api_host: 'https://us.i.posthog.com' });
+</script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -804,7 +808,7 @@ renderer.domElement.addEventListener('mousemove', e => {
   gravHint.style.left = e.clientX + 'px';
   gravHint.style.top  = e.clientY + 'px';
 });
-renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active');    });
+renderer.domElement.addEventListener('mousedown',  () => { pressing = true;  gravHint.classList.add('active'); posthog.capture('gravity_well_activated'); });
 renderer.domElement.addEventListener('mouseup',    () => { pressing = false; gravHint.classList.remove('active'); });
 renderer.domElement.addEventListener('mouseenter', () => { gravHint.style.opacity = '1'; });
 renderer.domElement.addEventListener('mouseleave', () => { gravHint.style.opacity = '0'; pressing = false; gravHint.classList.remove('active'); });
@@ -836,6 +840,7 @@ function applyTheme(idx) {
   bloom.strength         = t.bloom[0];
   bloom.radius           = t.bloom[1];
   bloom.threshold        = t.bloom[2];
+  posthog.capture('theme_changed', { theme: t.name, theme_index: idx });
 }
 
 // ── Arrow-key rocket steering ─────────────────────────────────
@@ -991,6 +996,7 @@ function updateRocket(dt) {
     rktGroup.visible  = false;
     rktTrLine.visible = false;
     if (followCam) setFollowCam(false);
+    posthog.capture('rocket_swallowed_by_blackhole');
     return;
   }
   const g = ROCKET_GM / (r * r);
@@ -1105,6 +1111,7 @@ function setFollowCam(on) {
   orbit.enabled = !on;
   camToggleEl.classList.toggle('active', on);
   camToggleEl.textContent = on ? '[ F ]  ROCKET VIEW' : '[ F ]  UNIVERSE VIEW';
+  posthog.capture('camera_mode_changed', { mode: on ? 'rocket_follow' : 'universe' });
   if (!on) {
     // Smooth restore handled by orbit; snap look-at back to origin
     orbit.target.set(0, 0, 0);
