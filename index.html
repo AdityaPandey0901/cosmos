@@ -325,8 +325,8 @@ const VERT = /* glsl */`
     // Black hole event horizon — hard repulsion, prevents particles
     // from crossing into the accretion disk / event horizon radius
     float bhPlaneDist = length(p.xz);
-    if (bhPlaneDist < 14.0 && bhPlaneDist > 0.01) {
-      float f = pow(1.0 - bhPlaneDist / 14.0, 2.5) * 30.0;
+    if (bhPlaneDist < 8.0 && bhPlaneDist > 0.01) {
+      float f = pow(1.0 - bhPlaneDist / 8.0, 2.5) * 22.0;
       p.xz += (p.xz / bhPlaneDist) * f;
     }
 
@@ -362,6 +362,13 @@ const VERT = /* glsl */`
     float luma = dot(aColor, vec3(0.299, 0.587, 0.114));
     float bri  = 0.55 + 0.45 * luma;
     vColor = speedCol * bri;
+
+    // Particles near the black hole fade from blue to black
+    float bhDist = length(p);
+    float proximity = 1.0 - smoothstep(2.8, 18.0, bhDist);
+    // Blend toward deep blue first, then to black
+    vec3 nearColor = mix(vec3(0.0, 0.02, 0.18), vec3(0.0, 0.0, 0.0), pow(proximity, 1.5));
+    vColor = mix(vColor, nearColor, proximity);
 
     // Twinkle
     vAlpha = 0.55 + 0.45 * sin(uTime * aTwinkle + aAngle * 2.7);
@@ -608,12 +615,9 @@ function buildGalaxy(theme) {
 function buildBlackHole(theme) {
   bhGroup.clear();
 
-  // Event horizon — dark sphere that occludes particles,
-  // with a Fresnel rim glow that bloom will amplify
-  // Event horizon — larger sphere so it fully occludes the inner disk
-  // and prevents bloom bleed from making the centre look white
+  // Pitch black sphere — small, clean, no rings
   bhGroup.add(new THREE.Mesh(
-    new THREE.SphereGeometry(5.5, 48, 48),
+    new THREE.SphereGeometry(2.8, 48, 48),
     new THREE.ShaderMaterial({
       vertexShader:   BH_VERT,
       fragmentShader: BH_FRAG,
@@ -621,43 +625,6 @@ function buildBlackHole(theme) {
       depthWrite: true,
     })
   ));
-
-  // Photon sphere — sits just outside the event horizon
-  const photon = new THREE.Mesh(
-    new THREE.TorusGeometry(6.2, 0.22, 16, 120),
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#aabbff'),
-      transparent: true,
-      opacity: 0.90,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
-  photon.rotation.x = Math.PI / 2;
-  bhGroup.add(photon);
-
-  // Accretion disk — starts beyond the event horizon sphere,
-  // dimmer inner ring so bloom doesn't wash out the black core
-  [
-    { inner: 6.5,  outer: 8.5,  opacity: 0.35, color: new THREE.Color('#88aaff') }, // soft blue-white
-    { inner: 8.8,  outer: 12.0, opacity: 0.22, color: new THREE.Color('#2244ff') }, // bright blue
-    { inner: 12.2, outer: 15.5, opacity: 0.10, color: new THREE.Color('#0a0f55') }, // deep navy
-    { inner: 15.8, outer: 20.0, opacity: 0.04, color: new THREE.Color('#06091e') }, // near black
-  ].forEach(({ inner, outer, opacity, color }) => {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(inner, outer, 100),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    bhGroup.add(ring);
-  });
 }
 
 // ── Bipolar Jets ──────────────────────────────────────────────
