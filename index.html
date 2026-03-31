@@ -148,7 +148,7 @@ canvas { display: block; }
   </div>
   <div id="controls-wrap">
     <div class="ctrl"><b>DRAG</b> — ORBIT &nbsp;·&nbsp; <b>SCROLL</b> — ZOOM</div>
-    <div class="ctrl"><b>CURSOR</b> — GRAVITY WELL</div>
+    <div class="ctrl"><b>CLICK</b> — GRAVITY WELL</div>
     <div class="ctrl"><b>1 · 2 · 3</b> — COLOR THEMES</div>
     <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
     <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
@@ -293,6 +293,16 @@ const VERT = /* glsl */`
     p.x = cos(theta) * aRadius;
     p.z = sin(theta) * aRadius;
     p.y = aY;
+
+    // ── Swirl: spiral inward drift — each particle slowly corkscrews
+    // toward the core then gets repelled, giving a continuous swirl motion
+    float swirlPhase = uTime * 0.28 + aAngle * 0.7 + aRadius * 0.055;
+    float swirlAmt   = sin(swirlPhase) * 0.55 * (1.0 - rNorm * 0.6);
+    // Tangential direction in XZ (perpendicular to radial) rotated 90°
+    vec2 radialDir = normalize(p.xz);
+    vec2 tangent   = vec2(-radialDir.y, radialDir.x);
+    // Blend radial inward + tangential to create a curl
+    p.xz += (tangent * swirlAmt - radialDir * swirlAmt * 0.35);
 
     // Brownian motion — disk-plane only (XZ), tiny Y flutter
     float bx = sin(uTime * aBrownFreq         + aBrownPhase)
@@ -534,8 +544,13 @@ function buildGalaxy(theme) {
     radii[i]  = Math.max(0, r + (Math.random() - 0.5) * 0.4);
     angles[i] = baseAngle;
 
-    // Thin disk: narrow height at arm, slightly puffier core
-    const hRange = inCore ? 1.8 : (1 - r / RMAX) * 0.9 + 0.08;
+    // 3-D disc: thick bulge at centre, tapers smoothly to razor-thin edge
+    // Profile: Gaussian-ish sech² envelope — tallest at core, ~0.18 at rim
+    const rFrac  = r / RMAX;                              // 0 → 1
+    const bulge  = Math.exp(-rFrac * rFrac * 3.2);        // 1.0 → ~0.04
+    const hRange = inCore
+      ? 3.8                                               // galactic bulge
+      : 0.18 + bulge * 40.2;                              // disk: thick→thin
     ys[i] = (Math.random() - 0.5) * hRange;
 
     // Arm particles slightly smaller for crispness
@@ -751,7 +766,12 @@ function applyTheme(idx) {
   bloom.threshold        = t.bloom[2];
 }
 
+// ── Arrow-key rocket steering ─────────────────────────────────
+const rktKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+window.addEventListener('keyup', e => { if (e.key in rktKeys) rktKeys[e.key] = false; });
+
 window.addEventListener('keydown', e => {
+  if (e.key in rktKeys) { e.preventDefault(); rktKeys[e.key] = true; return; }
   if (e.key === '1') applyTheme(0);
   if (e.key === '2') applyTheme(1);
   if (e.key === '3') applyTheme(2);
@@ -796,7 +816,7 @@ const TRAIL_EVERY = 3;      // record position every N frames
 // Physics state — 45° tilted orbit
 // Start at aphelion on the +X axis; velocity is in the plane tilted 45° in YZ.
 // Plane normal = normalise((0,122,0)×(0,6.44,-6.44)) = (0, 0.707, 0.707)
-const rktPos = new THREE.Vector3(122, 0, 0);
+const rktPos = new THREE.Vector3(85, 0, 0);
 const rktVel = new THREE.Vector3(0, 6.44, -6.44);   // tangential, 45° tilted
 
 // Store the orbital-plane normal at t=0 so the rocket can fight its way back
@@ -883,14 +903,14 @@ const _rktDG  = new THREE.Vector3();
 function updateRocket(dt) {
   // ── BH gravity (inverse-square from origin) ───────────────────
   const r = rktPos.length();
-  if (r > 3.5) {
-    const g = ROCKET_GM / (r * r);
-    rktVel.addScaledVector(rktPos, -g * dt / r);
-  } else {
-    // Inside event horizon: elastic bounce out
-    rktVel.negate().multiplyScalar(0.4);
-    rktPos.normalize().multiplyScalar(4.5);
+  if (r <= 2.8) {
+    // Inside event horizon — swallowed, gone forever
+    rktGroup.visible  = false;
+    rktTrLine.visible = false;
+    return;
   }
+  const g = ROCKET_GM / (r * r);
+  rktVel.addScaledVector(rktPos, -g * dt / r);
 
   // ── Click gravity — rocket partially resists (fighter pilot) ──
   // It doesn't go quietly: only 38% of the gravity force gets through.
@@ -909,11 +929,40 @@ function updateRocket(dt) {
   // ── Integrate ─────────────────────────────────────────────────
   rktPos.addScaledVector(rktVel, dt);
 
+  // ── Arrow-key steering ────────────────────────────────────────
+  const isSteerig = rktKeys.ArrowUp || rktKeys.ArrowDown || rktKeys.ArrowLeft || rktKeys.ArrowRight;
+  if (isSteerig) {
+    const spd0   = rktVel.length();
+    const fwdDir = rktVel.clone().normalize();          // rocket's current heading
+
+    // Build a local right axis: fwd × world-up (fallback to fwd × world-Z)
+    const worldUp  = new THREE.Vector3(0, 1, 0);
+    let   rightDir = new THREE.Vector3().crossVectors(fwdDir, worldUp);
+    if (rightDir.lengthSq() < 0.001) rightDir.set(1, 0, 0);
+    rightDir.normalize();
+
+    // Local up relative to the rocket's own frame
+    const upDir = new THREE.Vector3().crossVectors(rightDir, fwdDir).normalize();
+
+    const STEER = 11.0 * dt;   // degrees-of-effect per frame — gentle but noticeable
+    if (rktKeys.ArrowUp)    rktVel.addScaledVector(upDir,    STEER);
+    if (rktKeys.ArrowDown)  rktVel.addScaledVector(upDir,   -STEER);
+    if (rktKeys.ArrowLeft)  rktVel.addScaledVector(rightDir,-STEER);
+    if (rktKeys.ArrowRight) rktVel.addScaledVector(rightDir, STEER);
+
+    // Preserve speed — steering only rotates the velocity vector
+    rktVel.normalize().multiplyScalar(spd0);
+
+    // Update the stored orbital plane normal so the autopilot tracks the new course
+    rktL0.crossVectors(rktPos, rktVel).normalize();
+  }
+
   // ── Corrective autopilot — return to original orbital plane ───
   // When gravity is released the rocket fires thrusters to:
   //   1. Kill any out-of-plane velocity (damp it quickly)
   //   2. Spring back to the original inclined plane if drifted off it
-  if (rktFighting) {
+  // Suppressed while the player is actively steering
+  if (rktFighting && !isSteerig) {
     const vPerp = rktVel.dot(rktL0);       // velocity component ⊥ orbital plane
     const rPerp = rktPos.dot(rktL0);       // distance from orbital plane
 
