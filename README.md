@@ -2,6 +2,8 @@
 
 A real-time, GPU-rendered galaxy and black hole simulator built entirely in a single HTML file. No build tools, no frameworks — just Three.js, custom GLSL shaders, and raw physics.
 
+Check it out: https://space.atticusassociates.com
+
 ![COSMOS](https://img.shields.io/badge/Three.js-r160-blue) ![license](https://img.shields.io/badge/license-MIT-brightgreen)
 
 ---
@@ -31,16 +33,6 @@ A real-time, GPU-rendered galaxy and black hole simulator built entirely in a si
 - **Exhaust plume** — bloom-lit cone that brightens and flickers when the autopilot is fighting gravity
 - **Event horizon** — rocket is permanently swallowed if it crosses r ≤ 2.8 units
 
-### Interactivity
-| Input | Action |
-|---|---|
-| **Drag** | Orbit camera |
-| **Scroll** | Zoom |
-| **Click + hold** | Create a gravity well at cursor |
-| **↑ ↓ ← →** | Steer the rocket |
-| **1 / 2 / 3** | Switch color themes |
-| **+ / −** | Adjust simulation speed |
-| **Space** | Reset camera |
 
 ### Visuals
 - **UnrealBloomPass** post-processing for physically-based glow
@@ -90,12 +82,6 @@ index.html
     ├── Rocket       updateRocket() — physics loop, trail, exhaust
     └── Render loop  EffectComposer + OrbitControls
 ```
-
----
-
-## Live Demo
-
-[space.atticusassociates.com](https://space.atticusassociates.com)
 
 ---
 
