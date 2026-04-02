@@ -91,9 +91,9 @@ canvas { display: block; }
 .ctrl {
   font-size: 8.5px;
   letter-spacing: 1.8px;
-  color: rgba(255,255,255,0.16);
+  color: rgba(255, 255, 255, 0.641);
 }
-.ctrl b { color: rgba(255,255,255,0.42); font-weight: 600; }
+.ctrl b { color: rgb(255, 255, 255); font-weight: 600; }
 
 /* ── D-PAD ── */
 .dpad {
@@ -106,7 +106,7 @@ canvas { display: block; }
 .dpad-label {
   font-size: 7px;
   letter-spacing: 1.6px;
-  color: rgba(255,255,255,0.16);
+  color: rgb(255, 255, 255);
   margin-bottom: 0px;
   margin-top: 6px;
 }
@@ -127,6 +127,15 @@ canvas { display: block; }
   border-color: rgba(100,160,255,0.45);
 }
 .dk-empty { visibility: hidden; }
+
+/* ── AUTO COURSE CORRECTION INDICATOR ── */
+.ctrl-cc { transition: color 0.3s, text-shadow 0.3s; }
+.ctrl-cc.active { color: rgba(100,200,255,0.85); text-shadow: 0 0 8px rgba(80,160,255,0.4); }
+.ctrl-cc.active b { color: rgba(160,220,255,0.95); }
+
+.ctrl-cc-2 { transition: color 0.3s, text-shadow 0.3s; }
+.ctrl-cc-2.active { color: rgba(100,200,255,0.85); text-shadow: 0 0 8px rgba(80,160,255,0.4); }
+.ctrl-cc-2.active b { color: rgba(160,220,255,0.95); }
 
 /* ── FOLLOW CAM TOGGLE ── */
 #cam-toggle {
@@ -184,9 +193,9 @@ canvas { display: block; }
   margin-top: 14px;
   font-size: 8.5px;
   letter-spacing: 3px;
-  color: rgba(255,255,255,0.30);
+  color: rgb(255, 255, 255);
   text-decoration: none;
-  border: 1px solid rgba(255,255,255,0.13);
+  border: 1px solid rgb(3, 249, 253);
   border-radius: 4px;
   padding: 6px 12px;
   background: rgba(255,255,255,0.04);
@@ -231,17 +240,17 @@ canvas { display: block; }
   <div id="vignette"></div>
   <div id="title-wrap">
     <div id="cosmos-title">COSMOS</div>
-    <div id="cosmos-sub">OUR TINY SALUTE TO ARTEMIS 2</div>
+    <div id="cosmos-sub">OUR TINY SALUTE TO ARTEMIS 2 🚀</div>
     <div id="cosmos-sub">THE SPIRIT OF ADVENTURE LIVES ON!</div>
   </div>
   <div id="controls-wrap">
     <div class="ctrl"><b>DRAG</b> — ORBIT</div>
     <div class="ctrl"><b>SCROLL</b> — ZOOM</div>
     <div class="ctrl"><b>CLICK</b> — GRAVITY WELL</div>
-    <div class="ctrl"><b>F</b> — UNIVERSE VIEW</div>
+    <div class="ctrl ctrl-cc"><b>C</b> — AUTO COURSE CORRECTION</div>
+    <div class="ctrl ctrl-cc-2"><b>F</b> — UNIVERSE VIEW</div>
     <div class="ctrl"><b>+  /  −</b> — SIMULATION SPEED</div>
     <div class="ctrl"><b>SPACE</b> — RESET CAMERA</div>
-    <div class="dpad-label">ROCKET STEERING</div>
     <div class="dpad">
       <div class="dk-empty"></div>
       <div class="dk" id="dk-up">▲</div>
@@ -895,7 +904,18 @@ window.addEventListener('keydown', e => {
     simSpeed = Math.max(simSpeed * 0.77, 0.02);
     if (galaxyMat) galaxyMat.uniforms.uSpeed.value = simSpeed;
   }
-  if (e.key === 'f' || e.key === 'F') setFollowCam(!followCam);
+  if (e.key === 'c' || e.key === 'C') {
+    rktAutoCourse = !rktAutoCourse;
+    const ccCtrl = document.querySelector('.ctrl-cc');
+    if (ccCtrl) ccCtrl.classList.toggle('active', rktAutoCourse);
+    window.posthog?.capture('auto_course_correction_toggled', { enabled: rktAutoCourse });
+  }
+  if (e.key === 'f' || e.key === 'F'){
+     setFollowCam(!followCam);
+     const ccCtrl2 = document.querySelector('.ctrl-cc-2');
+     if (ccCtrl2) ccCtrl2.classList.toggle('active', followCam);
+  }
+
   if (e.key === ' ') {
     e.preventDefault();
     setFollowCam(false);
@@ -942,6 +962,7 @@ let   rktTick = 0;
 let   rktFighting = false;   // true while actively correcting course
 
 // ── Maneuver state ────────────────────────────────────────────
+let   rktAutoCourse = false;      // C key toggle — auto course correction
 let   rktPrevGrav = false;        // was gravity active last frame
 let   rktManeuverTime = 0;        // seconds left in current maneuver
 let   rktManeuverMode = null;     // 'perp' | 'toward'
@@ -1051,14 +1072,20 @@ function updateRocket(dt) {
 
   // ── Maneuver transition — detect entering / leaving gravity ──
   const gravActive = gravStr > 0.01 || r < RKT_BH_GRAV_RADIUS;
-  if (gravActive && !rktPrevGrav) {
-    // Entering gravity → turn perpendicular to radial for 5 s
-    rktManeuverTime = RKT_MANEUVER_DUR;
-    rktManeuverMode = 'perp';
-  } else if (!gravActive && rktPrevGrav) {
-    // Escaping gravity → turn toward the BH for 5 s
-    rktManeuverTime = RKT_MANEUVER_DUR;
-    rktManeuverMode = 'toward';
+  if (rktAutoCourse) {
+    if (gravActive && !rktPrevGrav) {
+      // Entering gravity → turn perpendicular to radial for 5 s
+      rktManeuverTime = RKT_MANEUVER_DUR;
+      rktManeuverMode = 'perp';
+    } else if (!gravActive && rktPrevGrav) {
+      // Escaping gravity → turn toward the BH for 5 s
+      rktManeuverTime = RKT_MANEUVER_DUR;
+      rktManeuverMode = 'toward';
+    }
+  } else {
+    // Auto course correction off — cancel any active maneuver
+    rktManeuverTime = 0;
+    rktManeuverMode = null;
   }
   rktPrevGrav = gravActive;
 
