@@ -939,6 +939,13 @@ const rktL0 = new THREE.Vector3()
 let   rktTick = 0;
 let   rktFighting = false;   // true while actively correcting course
 
+// ── Maneuver state ────────────────────────────────────────────
+let   rktPrevGrav = false;        // was gravity active last frame
+let   rktManeuverTime = 0;        // seconds left in current maneuver
+let   rktManeuverMode = null;     // 'perp' | 'toward'
+const RKT_MANEUVER_DUR = .0;    // duration of each maneuver (seconds)
+const RKT_BH_GRAV_RADIUS = 30;   // BH proximity threshold
+
 // ── Trail ─────────────────────────────────────────────────────
 const rktTrail  = [];
 const rktTrBuf  = new Float32Array(TRAIL_MAX * 3);
@@ -1040,6 +1047,19 @@ function updateRocket(dt) {
     rktFighting = true;
   }
 
+  // ── Maneuver transition — detect entering / leaving gravity ──
+  const gravActive = gravStr > 0.01 || r < RKT_BH_GRAV_RADIUS;
+  if (gravActive && !rktPrevGrav) {
+    // Entering gravity → turn perpendicular to radial for 5 s
+    rktManeuverTime = RKT_MANEUVER_DUR;
+    rktManeuverMode = 'perp';
+  } else if (!gravActive && rktPrevGrav) {
+    // Escaping gravity → turn toward the BH for 5 s
+    rktManeuverTime = RKT_MANEUVER_DUR;
+    rktManeuverMode = 'toward';
+  }
+  rktPrevGrav = gravActive;
+
   // ── Integrate ─────────────────────────────────────────────────
   rktPos.addScaledVector(rktVel, dt);
 
@@ -1071,20 +1091,33 @@ function updateRocket(dt) {
     rktL0.crossVectors(rktPos, rktVel).normalize();
   }
 
-  // ── Corrective autopilot — return to original orbital plane ───
-  // When gravity is released the rocket fires thrusters to:
-  //   1. Kill any out-of-plane velocity (damp it quickly)
-  //   2. Spring back to the original inclined plane if drifted off it
-  // Suppressed while the player is actively steering
-  if (rktFighting && !isSteerig) {
-    const vPerp = rktVel.dot(rktL0);       // velocity component ⊥ orbital plane
-    const rPerp = rktPos.dot(rktL0);       // distance from orbital plane
+  // ── 5-second maneuver steering ────────────────────────────────
+  // Entering gravity  → gradually turn perpendicular to rocket→BH vector
+  // Escaping gravity   → gradually turn toward the black hole
+  if (rktManeuverTime > 0 && !isSteerig) {
+    rktManeuverTime -= dt;
+    const blend    = Math.max(0, rktManeuverTime / RKT_MANEUVER_DUR); // 1→0
+    const steerRate = blend * 1.0 * dt;   // fades out over 5 seconds
 
-    // Damp out-of-plane velocity — feels like active thrusting
-    rktVel.addScaledVector(rktL0, -vPerp * Math.min(0.14, 7 * dt));
+    const spd0 = rktVel.length();
 
-    // Spring position back toward orbital plane
-    rktVel.addScaledVector(rktL0, -rPerp * 4.0 * dt);
+    if (rktManeuverMode === 'toward') {
+      // Target direction: straight at the black hole (origin)
+      
+      const toBH = rktPos.clone().negate().normalize().multiplyScalar(spd0);
+      rktVel.lerp(toBH, steerRate);
+    }
+
+    // Preserve orbital speed — maneuver only rotates, doesn't accelerate
+    rktVel.normalize().multiplyScalar(spd0);
+  }
+
+  // ── Light out-of-plane damping (keep orbit tidy) ──────────────
+  if (!isSteerig) {
+    const vPerp = rktVel.dot(rktL0);
+    const rPerp = rktPos.dot(rktL0);
+    rktVel.addScaledVector(rktL0, -vPerp * Math.min(0.10, 5 * dt));
+    rktVel.addScaledVector(rktL0, -rPerp * 2.5 * dt);
   }
 
   // ── Orient rocket nose along velocity ─────────────────────────
