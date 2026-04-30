@@ -209,6 +209,11 @@ canvas { display: block; }
   box-shadow: 0 0 12px rgba(80,140,255,0.20);
 }
 
+/* ── IFRAME MODE — hide all UI, show only the canvas ── */
+body.iframe-mode #loader,
+body.iframe-mode #hud,
+body.iframe-mode #gravity-hint { display: none !important; }
+
 /* ── GRAVITY CURSOR ── */
 #gravity-hint {
   position: fixed;
@@ -271,6 +276,10 @@ canvas { display: block; }
 </div>
 
 <div id="gravity-hint"></div>
+
+<script>
+  if (window.self !== window.top) document.body.classList.add('iframe-mode');
+</script>
 
 <script type="importmap">
 {
